@@ -1,0 +1,1123 @@
+// โครงสร้างโฟลเดอร์
+// pokemon-auction/
+// ├── client/
+// │   ├── public/
+// │   │   ├── index.html
+// │   │   └── favicon.ico
+// │   ├── src/
+// │   │   ├── components/
+// │   │   │   ├── AuctionArea.jsx
+// │   │   │   ├── BidControls.jsx
+// │   │   │   ├── PlayerInfo.jsx
+// │   │   │   ├── PokemonCard.jsx
+// │   │   │   └── PokemonSlot.jsx
+// │   │   ├── App.jsx
+// │   │   ├── index.js
+// │   │   └── socket.js
+// │   ├── package.json
+// │   └── tailwind.config.js
+// ├── server/
+// │   ├── models/
+// │   │   ├── Player.js
+// │   │   └── Game.js
+// │   ├── api/
+// │   │   └── pokemonAPI.js
+// │   ├── socketHandlers.js
+// │   └── server.js
+// ├── package.json
+// └── .env
+
+// ---------- CLIENT SIDE ----------
+
+// client/package.json
+{
+  "name": "pokemon-auction-client",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "socket.io-client": "^4.7.2",
+    "axios": "^1.6.2",
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.5",
+    "postcss": "^8.4.31",
+    "autoprefixer": "^10.4.16"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
+
+// client/tailwind.config.js
+module.exports = {
+  content: [
+    "./src/**/*.{js,jsx,ts,tsx}",
+    "./public/index.html"
+  ],
+  theme: {
+    extend: {
+      colors: {
+        'pokemon-red': '#FF0000',
+        'pokemon-blue': '#3B4CCA',
+        'pokemon-yellow': '#FFDE00',
+        'pokemon-light': '#B3A125'
+      },
+      animation: {
+        'flip': 'flip 1s ease-in-out',
+      },
+      keyframes: {
+        flip: {
+          '0%': { transform: 'rotateY(0deg)' },
+          '100%': { transform: 'rotateY(180deg)' }
+        }
+      }
+    },
+  },
+  plugins: [],
+}
+
+// client/public/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Pokémon Auction System" />
+  <title>Pokémon Auction</title>
+</head>
+<body>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"></div>
+</body>
+</html>
+
+// client/src/index.js
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// client/src/index.css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f9fafb;
+}
+
+/* Custom styles */
+.pokemon-card {
+  transition: all 0.3s ease;
+}
+
+.pokemon-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.flip-card {
+  perspective: 1000px;
+  width: 100%;
+  height: 100%;
+}
+
+.flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.8s;
+  transform-style: preserve-3d;
+}
+
+.flip-card.flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card-front, .flip-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+}
+
+.flip-card-back {
+  transform: rotateY(180deg);
+}
+
+// client/src/socket.js
+import { io } from 'socket.io-client';
+
+// สร้าง socket instance (จะเชื่อมต่อกับ server ที่รันบน port 5000)
+const socket = io('http://localhost:5000');
+
+export default socket;
+
+// client/src/App.jsx
+import React, { useState, useEffect } from 'react';
+import AuctionArea from './components/AuctionArea';
+import PlayerInfo from './components/PlayerInfo';
+import socket from './socket';
+
+const App = () => {
+  const [gameState, setGameState] = useState({
+    players: [],
+    currentPokemon: null,
+    centralDeck: [],
+    auctionStatus: 'waiting', // waiting, bidding, reveal
+    currentBid: 0,
+    currentBidder: null,
+  });
+  
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [connected, setConnected] = useState(false);
+
+  // Connect to socket
+  useEffect(() => {
+    socket.on('connect', () => {
+      setConnected(true);
+      console.log('Connected to server');
+    });
+
+    socket.on('gameState', (state) => {
+      setGameState(state);
+    });
+
+    socket.on('notification', (message) => {
+      addNotification(message);
+    });
+
+    socket.on('disconnect', () => {
+      setConnected(false);
+      addNotification('Disconnected from server');
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('gameState');
+      socket.off('notification');
+      socket.off('disconnect');
+    };
+  }, []);
+
+  const addNotification = (message) => {
+    setNotifications(prev => [message, ...prev].slice(0, 5));
+  };
+
+  const joinGame = (playerIndex) => {
+    if (playerIndex >= 0 && playerIndex < 3) {
+      socket.emit('joinGame', playerIndex);
+      setSelectedPlayer(playerIndex);
+      addNotification(`Joined as Player ${playerIndex + 1}`);
+    }
+  };
+
+  const placeBid = (amount) => {
+    if (selectedPlayer !== null) {
+      socket.emit('placeBid', { playerIndex: selectedPlayer, amount });
+    }
+  };
+
+  const skipBid = () => {
+    if (selectedPlayer !== null) {
+      socket.emit('skipBid', selectedPlayer);
+    }
+  };
+
+  const buyPokemon = (decision) => {
+    socket.emit('buyDecision', { playerIndex: selectedPlayer, decision });
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center relative">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-pokemon-blue">Pokémon Auction System</h1>
+          {!connected && <p className="text-red-500 mt-2">Connecting to server...</p>}
+        </div>
+
+        {selectedPlayer === null ? (
+          <div className="bg-white p-6 rounded-lg shadow-lg mb-8">
+            <h2 className="text-xl font-semibold mb-4">Select your player</h2>
+            <div className="flex justify-center space-x-4">
+              {[0, 1, 2].map((index) => (
+                <button
+                  key={index}
+                  onClick={() => joinGame(index)}
+                  className={`px-6 py-3 rounded-md font-medium text-white ${
+                    gameState.players[index]?.isActive
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-pokemon-blue hover:bg-blue-700'
+                  }`}
+                  disabled={gameState.players[index]?.isActive}
+                >
+                  Player {index + 1}
+                  {gameState.players[index]?.isActive ? ' (Taken)' : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex mb-6">
+              {/* Left player */}
+              <div className="w-1/4">
+                <PlayerInfo
+                  player={gameState.players[0]}
+                  isCurrent={selectedPlayer === 0}
+                />
+              </div>
+              
+              {/* Center auction area */}
+              <div className="w-2/4">
+                <AuctionArea
+                  currentPokemon={gameState.currentPokemon}
+                  auctionStatus={gameState.auctionStatus}
+                  currentBid={gameState.currentBid}
+                  currentBidder={gameState.currentBidder}
+                  placeBid={placeBid}
+                  skipBid={skipBid}
+                  buyPokemon={buyPokemon}
+                  playerIndex={selectedPlayer}
+                  players={gameState.players}
+                  notifications={notifications}
+                />
+              </div>
+              
+              {/* Right players */}
+              <div className="w-1/4 flex flex-col">
+                <PlayerInfo
+                  player={gameState.players[1]}
+                  isCurrent={selectedPlayer === 1}
+                />
+                <PlayerInfo
+                  player={gameState.players[2]}
+                  isCurrent={selectedPlayer === 2}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
+
+// client/src/components/PlayerInfo.jsx
+import React from 'react';
+import PokemonSlot from './PokemonSlot';
+
+const PlayerInfo = ({ player, isCurrent }) => {
+  if (!player) return null;
+
+  return (
+    <div className={`p-4 rounded-lg shadow-md mb-4 ${isCurrent ? 'bg-blue-50 border-2 border-pokemon-blue' : 'bg-white'}`}>
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-lg font-bold">{player.name}</h3>
+        <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-semibold">
+          ${player.money}
+        </span>
+      </div>
+      
+      <div className="text-sm mb-2">
+        <p>Skips left: {player.skipsLeft}</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        {player.pokemon.map((pokemon, idx) => (
+          <PokemonSlot 
+            key={idx} 
+            pokemon={pokemon} 
+            slotIndex={idx}
+          />
+        ))}
+        
+        {/* Empty slots */}
+        {Array(6 - player.pokemon.length).fill(0).map((_, idx) => (
+          <PokemonSlot key={`empty-${idx}`} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default PlayerInfo;
+
+// client/src/components/PokemonSlot.jsx
+import React from 'react';
+
+const PokemonSlot = ({ pokemon, slotIndex }) => {
+  return (
+    <div className={`relative border rounded-md ${pokemon ? 'pokemon-card border-gray-300' : 'border-dashed border-gray-300'}`}>
+      {pokemon ? (
+        <div className="p-1">
+          <img 
+            src={pokemon.imageUrl} 
+            alt={pokemon.name} 
+            className="w-full h-16 object-contain"
+          />
+          <p className="text-xs text-center font-medium text-gray-700 truncate">
+            {pokemon.name}
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center h-24 bg-gray-50">
+          <span className="text-gray-400 text-xs">Empty</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PokemonSlot;
+
+// client/src/components/PokemonCard.jsx
+import React from 'react';
+
+const PokemonCard = ({ pokemon, isRevealing = false }) => {
+  if (!pokemon) {
+    return (
+      <div className="flip-card">
+        <div className="flip-card-inner">
+          <div className="flip-card-front bg-gray-200 rounded-lg flex items-center justify-center h-64">
+            <span className="text-gray-500 text-xl">?</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flip-card ${isRevealing ? 'flipped' : ''}`}>
+      <div className="flip-card-inner">
+        <div className="flip-card-front">
+          <div className="bg-white rounded-lg shadow-md p-4 h-64">
+            <div className="flex justify-center mb-4">
+              <img
+                src={pokemon.imageUrl}
+                alt={pokemon.name}
+                className="h-40 w-40 object-contain"
+              />
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-semibold capitalize">{pokemon.name}</h3>
+            </div>
+          </div>
+        </div>
+        <div className="flip-card-back">
+          <div className="bg-white rounded-lg shadow-md p-4 h-64">
+            <div className="flex justify-center mb-4">
+              <img
+                src={pokemon.imageUrl}
+                alt={pokemon.name}
+                className="h-40 w-40 object-contain"
+              />
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-semibold capitalize">{pokemon.name}</h3>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PokemonCard;
+
+// client/src/components/BidControls.jsx
+import React, { useState } from 'react';
+
+const BidControls = ({ 
+  currentBid, 
+  playerMoney, 
+  placeBid, 
+  skipBid, 
+  skipsLeft,
+  canBid,
+  buyPokemon,
+  showBuyDecision
+}) => {
+  const [bidAmount, setBidAmount] = useState(50);
+  
+  const minBid = 50;
+  const maxBid = 200;
+  const minIncrease = Math.min(50, playerMoney);
+  
+  if (showBuyDecision) {
+    return (
+      <div className="bg-white p-4 rounded-lg shadow-md">
+        <p className="mb-4 text-center">You won the auction! Do you want to buy this Pokémon?</p>
+        <div className="flex justify-center space-x-4">
+          <button
+            onClick={() => buyPokemon(true)}
+            className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+          >
+            Yes, Buy
+          </button>
+          <button
+            onClick={() => buyPokemon(false)}
+            className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+          >
+            No, Skip
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!canBid) {
+    return (
+      <div className="bg-white p-4 rounded-lg shadow-md opacity-70">
+        <p className="text-center text-gray-500">Waiting for your turn...</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="bg-white p-4 rounded-lg shadow-md">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <span className="font-medium">Current bid: </span>
+          <span className="text-green-600 font-bold">${currentBid}</span>
+        </div>
+        <div>
+          <span className="font-medium">Your money: </span>
+          <span className="text-green-600 font-bold">${playerMoney}</span>
+        </div>
+      </div>
+      
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Your bid (Min: 50, Max: 200)</label>
+        <input
+          type="range"
+          min={minBid}
+          max={maxBid}
+          value={bidAmount}
+          onChange={(e) => setBidAmount(parseInt(e.target.value))}
+          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+        />
+        <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <span>${minBid}</span>
+          <span>${bidAmount}</span>
+          <span>${maxBid}</span>
+        </div>
+      </div>
+      
+      <div className="flex space-x-2">
+        <button
+          onClick={() => placeBid(bidAmount)}
+          disabled={currentBid + bidAmount > playerMoney}
+          className={`flex-1 py-2 px-4 rounded-md font-medium text-white ${
+            currentBid + bidAmount > playerMoney
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-pokemon-blue hover:bg-blue-700'
+          }`}
+        >
+          Bid ${bidAmount}
+        </button>
+        
+        <button
+          onClick={skipBid}
+          disabled={skipsLeft <= 0}
+          className={`flex-1 py-2 px-4 rounded-md font-medium text-white ${
+            skipsLeft <= 0
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-pokemon-red hover:bg-red-700'
+          }`}
+        >
+          Skip ({skipsLeft} left)
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default BidControls;
+
+// client/src/components/AuctionArea.jsx
+import React from 'react';
+import PokemonCard from './PokemonCard';
+import BidControls from './BidControls';
+
+const AuctionArea = ({
+  currentPokemon,
+  auctionStatus,
+  currentBid,
+  currentBidder,
+  placeBid,
+  skipBid,
+  buyPokemon,
+  playerIndex,
+  players,
+  notifications,
+}) => {
+  // ตัวแปรสำหรับแสดงผล
+  const isWaiting = auctionStatus === 'waiting';
+  const isBidding = auctionStatus === 'bidding';
+  const isReveal = auctionStatus === 'reveal';
+  const isMyTurn = currentBidder === playerIndex;
+  
+  // ถ้าไม่มีข้อมูล players หรือยังไม่ได้เลือก playerIndex
+  if (!players || playerIndex === null) return null;
+  
+  // ข้อมูลผู้เล่นปัจจุบัน
+  const currentPlayer = players[playerIndex];
+  
+  // เงื่อนไขสำหรับการแสดงปุ่มตัดสินใจซื้อ
+  const showBuyDecision = auctionStatus === 'buyDecision' && currentBidder === playerIndex;
+  
+  return (
+    <div className="bg-white p-6 rounded-lg shadow-lg mb-6">
+      {/* สถานะการประมูล */}
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold text-gray-800">
+          {isWaiting && 'Waiting for players...'}
+          {isBidding && `Auction in progress - ${currentBidder !== null ? `Player ${currentBidder + 1}'s turn` : 'Starting soon'}`}
+          {isReveal && 'Revealing Pokémon'}
+        </h2>
+        {currentBid > 0 && (
+          <p className="text-lg font-medium text-green-600">Current bid: ${currentBid}</p>
+        )}
+      </div>
+      
+      {/* แสดง Pokémon ที่กำลังประมูล */}
+      <div className="mb-6">
+        <PokemonCard
+          pokemon={currentPokemon}
+          isRevealing={isReveal}
+        />
+      </div>
+      
+      {/* ควบคุมการประมูล */}
+      {isBidding && (
+        <BidControls
+          currentBid={currentBid}
+          playerMoney={currentPlayer?.money || 0}
+          placeBid={placeBid}
+          skipBid={skipBid}
+          skipsLeft={currentPlayer?.skipsLeft || 0}
+          canBid={isMyTurn}
+          buyPokemon={buyPokemon}
+          showBuyDecision={showBuyDecision}
+        />
+      )}
+      
+      {/* แสดงการแจ้งเตือน */}
+      <div className="mt-6">
+        <h3 className="text-md font-semibold text-gray-700 mb-2">Notifications</h3>
+        <div className="bg-gray-50 p-3 rounded-md h-32 overflow-y-auto">
+          {notifications.length > 0 ? (
+            <ul className="space-y-1">
+              {notifications.map((msg, idx) => (
+                <li key={idx} className="text-sm text-gray-600">{msg}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-400 text-center">No notifications yet</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AuctionArea;
+
+// ---------- SERVER SIDE ----------
+
+// package.json
+{
+  "name": "pokemon-auction",
+  "version": "1.0.0",
+  "description": "Real-time Pokémon auction system",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "nodemon server/server.js",
+    "client": "cd client && npm start",
+    "install-all": "npm install && cd client && npm install"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongoose": "^8.0.0",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
+
+// .env
+PORT=5000
+MONGO_URI=mongodb://localhost:27017/pokemon-auction
+NODE_ENV=development
+
+// server/models/Player.js
+const mongoose = require('mongoose');
+
+const PlayerSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    default: function() {
+      return `Player ${this.playerIndex + 1}`;
+    }
+  },
+  playerIndex: {
+    type: Number,
+    required: true,
+    min: 0,
+    max: 2
+  },
+  money: {
+    type: Number,
+    default: 5000
+  },
+  pokemon: [{
+    name: String,
+    imageUrl: String
+  }],
+  skipsLeft: {
+    type: Number,
+    default: 2
+  },
+  isActive: {
+    type: Boolean,
+    default: false
+  },
+  socketId: String
+});
+
+module.exports = mongoose.model('Player', PlayerSchema);
+
+// server/models/Game.js
+const mongoose = require('mongoose');
+
+const GameSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['waiting', 'bidding', 'buyDecision', 'reveal', 'finished'],
+    default: 'waiting'
+  },
+  players: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Player'
+  }],
+  currentPokemon: {
+    name: String,
+    imageUrl: String
+  },
+  pokemonDeck: [{
+    name: String,
+    imageUrl: String
+  }],
+  centralDeck: [{
+    name: String,
+    imageUrl: String
+  }],
+  currentBid: {
+    type: Number,
+    default: 0
+  },
+  currentBidder: {
+    type: Number,
+    default: null
+  },
+  nextPlayerTurn: {
+    type: Number,
+    default: 0
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model('Game', GameSchema);
+
+// server/api/pokemonAPI.js
+const axios = require('axios');
+
+// จำนวน Pokemon ที่จะสุ่ม
+const TOTAL_POKEMON = 18;
+
+// ดึงข้อมูล Pokemon จาก PokeAPI โดยใช้ ID
+const fetchPokemonById = async (id) => {
+  try {
+    const response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${id}`);
+    return {
+      name: response.data.name,
+      imageUrl: response.data.sprites.other['official-artwork'].front_default || 
+                response.data.sprites.front_default
+    };
+  } catch (error) {
+    console.error(`Error fetching Pokémon #${id}:`, error.message);
+    return null;
+  }
+};
+
+// สุ่ม Pokemon จาก PokeAPI
+const getRandomPokemon = async (count = TOTAL_POKEMON) => {
+  // จำนวน Pokemon ทั้งหมดใน API (ประมาณ 1000+)
+  const MAX_POKEMON_ID = 898;
+  
+  // สร้างอาร์เรย์ของตัวเลขที่จะสุ่ม
+  const randomIds = [];
+  while (randomIds.length < count) {
+    const randomId = Math.floor(Math.random() * MAX_POKEMON_ID) + 1;
+    if (!randomIds.includes(randomId)) {
+      randomIds.push(randomId);
+    }
+  }
+  
+  // ดึงข้อมูล Pokemon จาก API พร้อมกัน
+  const pokemonPromises = randomIds.map(id => fetchPokemonById(id));
+  const pokemonResults = await Promise.all(pokemonPromises);
+  
+  // กรองผลลัพธ์ที่ไม่เป็น null
+  return pokemonResults.filter(pokemon => pokemon !== null);
+};
+
+module.exports = {
+  getRandomPokemon
+};
+
+// server/socketHandlers.js
+const Player = require('./models/Player');
+const Game = require('./models/Game');
+const { getRandomPokemon } = require('./api/pokemonAPI');
+
+module.exports = (io) => {
+  // ตัวแปรสำหรับเก็บสถานะเกม
+  let gameState = {
+    status: 'waiting',
+    players: [
+      { playerIndex: 0, name: 'Player 1', money: 5000, pokemon: [], skipsLeft: 2, isActive: false },
+      { playerIndex: 1, name: 'Player 2', money: 5000, pokemon: [], skipsLeft: 2, isActive: false },
+      { playerIndex: 2, name: 'Player 3', money: 5000, pokemon: [], skipsLeft: 2, isActive: false }
+    ],
+    currentPokemon: null,
+    pokemonDeck: [],
+    centralDeck: [],
+    currentBid: 0,
+    currentBidder: null,
+    nextPlayerTurn: 0
+  };
+
+  // จำนวน Pokémon ที่จะสุ่ม
+  const TOTAL_POKEMON = 18;
+  
+  // เริ่มเกมใหม่
+  const initializeGame = async () => {
+    try {
+      // สุ่ม Pokemon
+      console.log('Fetching random Pokémon...');
+      const randomPokemon = await getRandomPokemon(TOTAL_POKEMON);
+      console.log(`Fetched ${randomPokemon.length} Pokémon successfully.`);
+      
+      // แบ่ง Pokemon เป็นกอง (deck)
+      gameState.pokemonDeck = [...randomPokemon];
+      gameState.centralDeck = [];
+      gameState.currentPokemon = null;
+      
+      // รีเซ็ตผู้เล่น
+      gameState.players.forEach(player => {
+        player.money = 5000;
+        player.pokemon = [];
+        player.skipsLeft = 2;
+      });
+      
+      gameState.status = 'waiting';
+      gameState.currentBid = 0;
+      gameState.currentBidder = null;
+      
+      // ส่งสถานะเกมใหม่ให้ผู้เล่นทุกคน
+      io.emit('gameState', gameState);
+      io.emit('notification', 'Game initialized! Waiting for players to join...');
+    } catch (error) {
+      console.error('Error initializing game:', error);
+    }
+  };
+  
+  // เริ่มการประมูล
+  const startAuction = () => {
+    // ถ้ามีการ์ดเหลือในกอง
+    if (gameState.pokemonDeck.length > 0) {
+      // สุ่มการ์ดจากกอง
+      const randomIndex = Math.floor(Math.random() * gameState.pokemonDeck.length);
+      gameState.currentPokemon = gameState.pokemonDeck.splice(randomIndex, 1)[0];
+      
+      // รีเซ็ตค่าประมูล
+      gameState.status = 'bidding';
+      gameState.currentBid = 0;
+      gameState.currentBidder = gameState.nextPlayerTurn;
+      
+      // ตรวจสอบว่าผู้เล่นที่เป็นตาประมูลยังอยู่หรือไม่
+      while (!gameState.players[gameState.currentBidder].isActive) {
+        gameState.currentBidder = (gameState.currentBidder + 1) % 3;
+      }
+      
+      // อัปเดตตาถัดไป
+      gameState.nextPlayerTurn = (gameState.currentBidder + 1) % 3;
+      
+      // ส่งสถานะเกมให้ผู้เล่นทุกคน
+      io.emit('gameState', gameState);
+      io.emit('notification', `New auction started! ${gameState.currentPokemon.name} is up for bidding!`);
+    } else {
+      // จบเกมเมื่อไม่มีการ์ดเหลือ
+      gameState.status = 'finished';
+      io.emit('gameState', gameState);
+      io.emit('notification', 'Game over! No more Pokémon cards left.');
+    }
+  };
+  
+  // เปลี่ยนตาผู้เล่น
+  const nextPlayerTurn = () => {
+    // หาผู้เล่นที่ยังอยู่ในเกม
+    let nextPlayer = (gameState.currentBidder + 1) % 3;
+    while (!gameState.players[nextPlayer].isActive) {
+      nextPlayer = (nextPlayer + 1) % 3;
+      // ถ้าวนครบรอบกลับมาที่ผู้เล่นเดิม แสดงว่ามีคนประมูลเพียงคนเดียว
+      if (nextPlayer === gameState.currentBidder) {
+        // สิ้นสุดการประมูล ให้ผู้เล่นตัดสินใจซื้อหรือไม่
+        gameState.status = 'buyDecision';
+        io.emit('gameState', gameState);
+        io.emit('notification', `Player ${gameState.currentBidder + 1} won the auction! Waiting for buy decision...`);
+        return;
+      }
+    }
+    
+    // ตั้งตาผู้เล่นคนถัดไป
+    gameState.currentBidder = nextPlayer;
+    io.emit('gameState', gameState);
+    io.emit('notification', `Player ${gameState.currentBidder + 1}'s turn to bid.`);
+  };
+  
+  // เปิดเผยโปเกมอนและเริ่มการประมูลใหม่
+  const revealAndNextAuction = () => {
+    // แสดงโปเกมอน
+    gameState.status = 'reveal';
+    io.emit('gameState', gameState);
+    io.emit('notification', `Revealing ${gameState.currentPokemon.name}!`);
+    
+    // รอสักครู่แล้วเริ่มการประมูลอันใหม่
+    setTimeout(() => {
+      startAuction();
+    }, 3000);
+  };
+  
+  // จัดการการเชื่อมต่อ Socket
+  io.on('connection', (socket) => {
+    console.log(`Client connected: ${socket.id}`);
+    
+    // ส่งสถานะเกมให้ผู้เล่นที่เพิ่งเชื่อมต่อ
+    socket.emit('gameState', gameState);
+    
+    // เข้าร่วมเกม
+    socket.on('joinGame', (playerIndex) => {
+      if (playerIndex >= 0 && playerIndex < 3) {
+        // ตรวจสอบว่าตำแหน่งนี้ว่างหรือไม่
+        if (!gameState.players[playerIndex].isActive) {
+          gameState.players[playerIndex].isActive = true;
+          gameState.players[playerIndex].socketId = socket.id;
+          
+          // ตรวจสอบว่าครบ 3 คนหรือยัง
+          const activePlayers = gameState.players.filter(p => p.isActive).length;
+          
+          io.emit('gameState', gameState);
+          io.emit('notification', `Player ${playerIndex + 1} joined the game! (${activePlayers}/3 players)`);
+          
+          // เริ่มเกมเมื่อครบ 3 คน
+          if (activePlayers === 3 && gameState.status === 'waiting') {
+            setTimeout(() => {
+              startAuction();
+            }, 2000);
+          }
+        }
+      }
+    });
+    
+    // การประมูล
+    socket.on('placeBid', ({ playerIndex, amount }) => {
+      // ตรวจสอบว่าเป็นตาของผู้เล่นนี้หรือไม่
+      if (gameState.status === 'bidding' && gameState.currentBidder === playerIndex) {
+        // ตรวจสอบว่าผู้เล่นมีเงินพอหรือไม่
+        const player = gameState.players[playerIndex];
+        const totalBid = gameState.currentBid + amount;
+        
+        if (totalBid <= player.money) {
+          // อัปเดตราคาประมูล
+          gameState.currentBid = totalBid;
+          io.emit('notification', `Player ${playerIndex + 1} bids $${totalBid}!`);
+          
+          // เปลี่ยนตาผู้เล่น
+          nextPlayerTurn();
+        } else {
+          // แจ้งเตือนเงินไม่พอ
+          socket.emit('notification', 'Not enough money for this bid!');
+        }
+      }
+    });
+    
+    // ข้ามการประมูล
+    socket.on('skipBid', (playerIndex) => {
+      // ตรวจสอบว่าเป็นตาของผู้เล่นนี้หรือไม่
+      if (gameState.status === 'bidding' && gameState.currentBidder === playerIndex) {
+        const player = gameState.players[playerIndex];
+        
+        // ตรวจสอบว่ายังมีสิทธิ์ข้ามเหลืออยู่หรือไม่
+        if (player.skipsLeft > 0) {
+          // ใช้สิทธิ์ข้าม
+          player.skipsLeft -= 1;
+          io.emit('notification', `Player ${playerIndex + 1} skipped their turn! (${player.skipsLeft} skips left)`);
+          
+          // เปลี่ยนตาผู้เล่น
+          nextPlayerTurn();
+        } else {
+          // แจ้งเตือนสิทธิ์ข้ามหมด
+          socket.emit('notification', 'No skips left!');
+        }
+      }
+    });
+    
+    // การตัดสินใจซื้อหรือไม่ซื้อ
+    socket.on('buyDecision', ({ playerIndex, decision }) => {
+      if (gameState.status === 'buyDecision' && gameState.currentBidder === playerIndex) {
+        const player = gameState.players[playerIndex];
+        
+        if (decision) {
+          // ซื้อโปเกมอน
+          player.money -= gameState.currentBid;
+          player.pokemon.push(gameState.currentPokemon);
+          io.emit('notification', `Player ${playerIndex + 1} bought ${gameState.currentPokemon.name} for $${gameState.currentBid}!`);
+        } else {
+          // ไม่ซื้อ เก็บโปเกมอนไว้ในกลาง
+          gameState.centralDeck.push(gameState.currentPokemon);
+          io.emit('notification', `Player ${playerIndex + 1} decided not to buy ${gameState.currentPokemon.name}. It goes to the central deck.`);
+        }
+        
+        // เริ่มการประมูลรอบใหม่
+        revealAndNextAuction();
+      }
+    });
+    
+    // ตรวจจับการตัดการเชื่อมต่อ
+    socket.on('disconnect', () => {
+      console.log(`Client disconnected: ${socket.id}`);
+      
+      // ค้นหาผู้เล่นที่ตัดการเชื่อมต่อ
+      const disconnectedPlayerIndex = gameState.players.findIndex(p => p.socketId === socket.id);
+      
+      if (disconnectedPlayerIndex !== -1) {
+        // อัปเดตสถานะผู้เล่น
+        gameState.players[disconnectedPlayerIndex].isActive = false;
+        io.emit('notification', `Player ${disconnectedPlayerIndex + 1} disconnected from the game.`);
+        
+        // ถ้าเป็นตาของผู้เล่นที่ออกไป ให้เปลี่ยนตา
+        if (gameState.status === 'bidding' && gameState.currentBidder === disconnectedPlayerIndex) {
+          nextPlayerTurn();
+        }
+        
+        // ตรวจสอบจำนวนผู้เล่นที่เหลือ
+        const activePlayers = gameState.players.filter(p => p.isActive).length;
+        
+        if (activePlayers < 1) {
+          // รีเซ็ตเกมถ้าไม่มีผู้เล่นเหลือ
+          gameState.status = 'waiting';
+          io.emit('gameState', gameState);
+          io.emit('notification', 'Game reset due to lack of players.');
+        }
+      }
+    });
+  });
+  
+  // เริ่มเกมเมื่อเซิร์ฟเวอร์พร้อม
+  initializeGame();
+};
+
+//server/server.js
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const socketHandlers = require('./socketHandlers');
+
+// Load environment variables
+dotenv.config();
+
+// Initialize Express app
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:3000', // React client URL
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Connect to MongoDB (if needed)
+if (process.env.MONGO_URI) {
+  mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => console.log('MongoDB connected'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+}
+
+// Basic route
+app.get('/', (req, res) => {
+  res.send('Pokémon Auction API is running');
+});
+
+// Set up Socket.io handlers
+socketHandlers(io);
+
+// Start server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
