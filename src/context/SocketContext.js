@@ -12,7 +12,7 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     // Connect to the server
-    const newSocket = io(process.env.REACT_APP_SERVER_URL ||'https://your-api-domain.com');
+    const newSocket = io(process.env.REACT_APP_SERVER_URL ||'https://server-1-9o5e.onrender.com');
     setSocket(newSocket);
 
     return () => {
