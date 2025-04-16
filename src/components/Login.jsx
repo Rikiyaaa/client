@@ -18,18 +18,7 @@ function Login() {
   const [hasVoted, setHasVoted] = useState(false);
   const [showResetOption, setShowResetOption] = useState(false);
 
-  // ตรวจสอบ local storage สำหรับชื่อผู้เล่นที่บันทึกไว้
-  useEffect(() => {
-    const savedName = localStorage.getItem('playerName');
-    if (savedName) {
-      setName(savedName);
-      setIsReconnecting(true);
-      // ลองเชื่อมต่อใหม่อัตโนมัติ
-      if (socket) {
-        attemptReconnect(savedName);
-      }
-    }
-  }, [socket]);
+  // ตรวจสอบ local storage สำหรับชื่อผู้เล่นที่บันทึกไว
   
   // Listen for reset vote updates
   useEffect(() => {
