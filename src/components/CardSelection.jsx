@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 import { usePlayer } from '../context/PlayerContext';
+import StartAuctionVote from './StartAuctionVote'; // นำเข้าคอมโพเนนต์ใหม่
 
 function CardSelection() {
   const { socket } = useSocket();
@@ -10,6 +11,7 @@ function CardSelection() {
   const [cardValues, setCardValues] = useState([null, null, null]);
   const [isSelecting, setIsSelecting] = useState(false);
   const [revealedValue, setRevealedValue] = useState(null);
+  const [showVote, setShowVote] = useState(false); // เพิ่มสถานะสำหรับการแสดงหน้าโหวต
 
   useEffect(() => {
     if (socket) {
@@ -24,8 +26,14 @@ function CardSelection() {
         }
       });
 
+      // เพิ่ม listener สำหรับ showStartAuctionVote event
+      socket.on('showStartAuctionVote', () => {
+        setShowVote(true);
+      });
+
       return () => {
         socket.off('cardRevealed');
+        socket.off('showStartAuctionVote');
       };
     }
   }, [socket, player, cardValues]);
@@ -75,6 +83,9 @@ function CardSelection() {
             <p className="text-center text-sm text-gray-500 mt-6">
               Your bidding position: {revealedValue}
             </p>
+            
+            {/* แสดงส่วนโหวตเมื่อถึงเวลา */}
+            {showVote && <StartAuctionVote />}
           </div>
         </div>
       </div>
